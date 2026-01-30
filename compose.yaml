@@ -1,0 +1,13 @@
+﻿services:
+  matchmaking.service:
+    image: matchmaking.service
+    build:
+      context: .
+      dockerfile: src/MatchMaking.Service/Dockerfile
+
+  matchmaking.worker:
+    image: matchmaking.worker
+    build:
+      context: .
+      dockerfile: src/MatchMaking.Worker/Dockerfile
+
