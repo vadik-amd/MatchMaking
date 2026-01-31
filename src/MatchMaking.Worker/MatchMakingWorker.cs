@@ -1,5 +1,7 @@
 using Confluent.Kafka;
 using System.Text.Json;
+using MatchMaking.Shared.Constants;
+using MatchMaking.Shared.Contracts;
 
 namespace MatchMaking.Worker;
 
@@ -8,12 +10,11 @@ public class MatchMakingWorker : BackgroundService
     private readonly IConsumer<string, string> _consumer;
     private readonly IProducer<string, string> _producer;
     private readonly ILogger<MatchMakingWorker> _logger;
-    private readonly IConfiguration _configuration;
 
     private readonly List<string> _waitingPlayers = new();
-    private readonly string _requestTopic = "matchmaking.request";
-    private readonly string _completeTopic = "matchmaking.complete";
-    private int _playersPerMatch;
+    private readonly string _requestTopic = KafkaTopics.MatchRequest;
+    private readonly string _completeTopic = KafkaTopics.MatchComplete;
+    private readonly int _playersPerMatch;
 
     public MatchMakingWorker(
         IConsumer<string, string> consumer,
@@ -24,8 +25,7 @@ public class MatchMakingWorker : BackgroundService
         _consumer = consumer;
         _producer = producer;
         _logger = logger;
-        _configuration = configuration;
-        _playersPerMatch = _configuration.GetValue<int>("MatchMaking:PlayersPerMatch", 3);
+        _playersPerMatch = configuration.GetValue<int>("MatchMaking:PlayersPerMatch", 3);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -58,7 +58,7 @@ public class MatchMakingWorker : BackgroundService
                 }
                 catch (ConsumeException ex) when (ex.Error.Code == ErrorCode.UnknownTopicOrPart)
                 {
-                    _logger.LogWarning("Topic matchmaking.request not yet available, retrying...");
+                    _logger.LogWarning($"Topic {_requestTopic} not yet available, retrying...");
                     await Task.Delay(2000, stoppingToken);
                 }
                 catch (ConsumeException ex)
@@ -82,11 +82,7 @@ public class MatchMakingWorker : BackgroundService
 
         var matchId = Guid.NewGuid().ToString();
 
-        var matchComplete = new
-        {
-            MatchId = matchId,
-            UserIds = playersForMatch
-        };
+        var matchComplete = new MatchCompleteMessage(matchId, playersForMatch);
 
         var messageJson = JsonSerializer.Serialize(matchComplete);
 
