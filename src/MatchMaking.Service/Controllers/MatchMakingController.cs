@@ -1,5 +1,5 @@
-using MatchMaking.Service.Contracts;
 using MatchMaking.Service.Services;
+using MatchMaking.Shared.Contracts;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MatchMaking.Service.Controllers;

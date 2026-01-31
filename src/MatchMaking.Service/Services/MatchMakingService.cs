@@ -1,7 +1,8 @@
 using Confluent.Kafka;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Text.Json;
-using MatchMaking.Service.Contracts;
+using MatchMaking.Shared.Constants;
+using MatchMaking.Shared.Contracts;
 
 namespace MatchMaking.Service.Services;
 
@@ -11,7 +12,7 @@ public class MatchMakingService(
     ILogger<MatchMakingService> logger)
     : IMatchMakingService
 {
-    private readonly string _requestTopic = "matchmaking.request";
+    private readonly string _requestTopic = KafkaTopics.MatchRequest;
 
     public async Task RequestMatchAsync(string userId)
     {

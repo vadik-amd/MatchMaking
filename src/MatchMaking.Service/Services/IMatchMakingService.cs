@@ -1,4 +1,4 @@
-using MatchMaking.Service.Contracts;
+using MatchMaking.Shared.Contracts;
 
 namespace MatchMaking.Service.Services;
 
