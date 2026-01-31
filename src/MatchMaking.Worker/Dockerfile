@@ -1,21 +1,22 @@
-﻿FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
-USER $APP_UID
+﻿FROM mcr.microsoft.com/dotnet/runtime:9.0 AS base
 WORKDIR /app
-EXPOSE 8080
-EXPOSE 8081
 
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+
+COPY ["MatchMaking.Worker.sln", "./"]
 COPY ["src/MatchMaking.Worker/MatchMaking.Worker.csproj", "src/MatchMaking.Worker/"]
-RUN dotnet restore "src/MatchMaking.Worker/MatchMaking.Worker.csproj"
+COPY ["src/MatchMaking.Shared/MatchMaking.Shared.csproj", "src/MatchMaking.Shared/"]
+
+RUN dotnet restore "MatchMaking.Worker.sln"
+
 COPY . .
+
 WORKDIR "/src/src/MatchMaking.Worker"
-RUN dotnet build "./MatchMaking.Worker.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "MatchMaking.Worker.csproj" -c Release -o /app/build
 
 FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./MatchMaking.Worker.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "MatchMaking.Worker.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app
