@@ -1,4 +1,5 @@
 using Confluent.Kafka;
+using MatchMaking.Service.Consumers;
 using MatchMaking.Service.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,12 +15,26 @@ builder.Services.AddSingleton<IProducer<string, string>>(sp =>
 {
     var config = new ProducerConfig
     {
-        BootstrapServers = builder.Configuration["Kafka:BootstrapServers"] ?? "localhost:9092"
+        BootstrapServers = builder.Configuration["Kafka:BootstrapServers"] ?? "localhost:9092",
+        AllowAutoCreateTopics = true
     };
     return new ProducerBuilder<string, string>(config).Build();
 });
+builder.Services.AddSingleton<IConsumer<string, string>>(sp =>
+{
+    var config = new ConsumerConfig
+    {
+        BootstrapServers = builder.Configuration["Kafka:BootstrapServers"],
+        GroupId = "matchmaking-service-group",
+        AutoOffsetReset = AutoOffsetReset.Earliest,
+        EnableAutoCommit = false
+    };
+    return new ConsumerBuilder<string, string>(config).Build();
+});
 
 builder.Services.AddSingleton<IMatchMakingService, MatchMakingService>();
+builder.Services.AddHostedService<MatchCompleteConsumer>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

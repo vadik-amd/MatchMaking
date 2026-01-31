@@ -1,3 +1,3 @@
-namespace MatchMaking.Service.Responses;
+namespace MatchMaking.Service.Contracts;
 
 public record MatchInfoResponse(string MatchId, string[] UserIds);

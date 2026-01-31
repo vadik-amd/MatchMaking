@@ -1,7 +1,7 @@
 using Confluent.Kafka;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Text.Json;
-using MatchMaking.Service.Responses;
+using MatchMaking.Service.Contracts;
 
 namespace MatchMaking.Service.Services;
 
@@ -84,6 +84,36 @@ public class MatchMakingService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Error retrieving match info from cache for user {UserId}", userId);
+            throw;
+        }
+    }
+    
+    public async Task SaveMatchInfoAsync(string matchId, string[] userIds)
+    {
+        try
+        {
+            var matchInfo = new MatchInfoResponse(matchId, userIds);
+            var jsonData = JsonSerializer.Serialize(matchInfo);
+
+            var cacheOptions = new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1)
+            };
+
+            foreach (var userId in userIds)
+            {
+                var cacheKey = $"match:{userId}";
+                await cache.SetStringAsync(cacheKey, jsonData, cacheOptions);
+                logger.LogInformation("Match info saved for user {UserId}, match {MatchId}", 
+                    userId, matchId);
+            }
+
+            logger.LogInformation("Match making completed for match {MatchId} with {UserCount} users", 
+                matchId, userIds.Length);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to save match info for match {MatchId}", matchId);
             throw;
         }
     }

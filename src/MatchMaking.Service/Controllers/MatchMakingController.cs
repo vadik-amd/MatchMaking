@@ -1,4 +1,4 @@
-using MatchMaking.Service.Responses;
+using MatchMaking.Service.Contracts;
 using MatchMaking.Service.Services;
 using Microsoft.AspNetCore.Mvc;
 
