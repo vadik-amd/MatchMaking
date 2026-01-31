@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using Confluent.Kafka;
 using MatchMaking.Service.Consumers;
 using MatchMaking.Service.Services;
@@ -35,6 +36,20 @@ builder.Services.AddSingleton<IConsumer<string, string>>(_ =>
 builder.Services.AddSingleton<IMatchMakingService, MatchMakingService>();
 builder.Services.AddHostedService<MatchCompleteConsumer>();
 
+
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = ApiVersionReader.Combine(
+        new UrlSegmentApiVersionReader(),
+        new HeaderApiVersionReader("X-Api-Version"));
+}).AddApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

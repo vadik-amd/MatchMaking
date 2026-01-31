@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using MatchMaking.Service.Services;
 using MatchMaking.Shared.Contracts;
 using Microsoft.AspNetCore.Mvc;
@@ -5,7 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace MatchMaking.Service.Controllers;
 
 [ApiController]
-[Route("api/[controller]")] 
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/[controller]")] 
 public class MatchMakingController(
     IMatchMakingService matchMakingService,
     ILogger<MatchMakingController> logger)
