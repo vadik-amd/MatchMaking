@@ -2,4 +2,6 @@
 /src/MatchMaking.Service/obj/
 /src/MatchMaking.Worker/bin/
 /src/MatchMaking.Worker/obj/
+/src/MatchMaking.Shared/bin/
+/src/MatchMaking.Shared/obj/
 

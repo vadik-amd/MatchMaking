@@ -2,36 +2,27 @@ using Confluent.Kafka;
 using System.Text.Json;
 using MatchMaking.Shared.Constants;
 using MatchMaking.Shared.Contracts;
+using StackExchange.Redis;
 
 namespace MatchMaking.Worker;
 
-public class MatchMakingWorker : BackgroundService
+public class MatchMakingWorker(
+    IConsumer<string, string> consumer,
+    IProducer<string, string> producer,
+    ILogger<MatchMakingWorker> logger,
+    IConfiguration configuration,
+    IConnectionMultiplexer redis)
+    : BackgroundService
 {
-    private readonly IConsumer<string, string> _consumer;
-    private readonly IProducer<string, string> _producer;
-    private readonly ILogger<MatchMakingWorker> _logger;
-
-    private readonly List<string> _waitingPlayers = new();
     private readonly string _requestTopic = KafkaTopics.MatchRequest;
     private readonly string _completeTopic = KafkaTopics.MatchComplete;
-    private readonly int _playersPerMatch;
-
-    public MatchMakingWorker(
-        IConsumer<string, string> consumer,
-        IProducer<string, string> producer,
-        ILogger<MatchMakingWorker> logger,
-        IConfiguration configuration)
-    {
-        _consumer = consumer;
-        _producer = producer;
-        _logger = logger;
-        _playersPerMatch = configuration.GetValue<int>("MatchMaking:PlayersPerMatch", 3);
-    }
+    private readonly string _queueKey = configuration.GetValue<string>("MatchMaking:QueueKey", "matchmaking:queue");
+    private readonly int _playersPerMatch = configuration.GetValue("MatchMaking:PlayersPerMatch", 3);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _consumer.Subscribe(_requestTopic);
-        _logger.LogInformation("Worker started. Consuming from {Topic}. Players per match: {Count}",
+        consumer.Subscribe(_requestTopic);
+        logger.LogInformation("Worker started. Consuming from {Topic}. Players per match: {Count}",
             _requestTopic, _playersPerMatch);
 
         try
@@ -40,50 +31,76 @@ public class MatchMakingWorker : BackgroundService
             {
                 try
                 {
-                    var result = _consumer.Consume(TimeSpan.FromMilliseconds(100));
+                    var result = consumer.Consume(TimeSpan.FromMilliseconds(100));
 
                     if (result?.Message?.Value != null)
                     {
                         var userId = result.Message.Value;
-                        _logger.LogInformation("Received match request from user: {UserId}", userId);
+                        logger.LogInformation("Received match request from user: {UserId}", userId);
 
-                        _waitingPlayers.Add(userId);
-                        _consumer.Commit(result);
+                        
+                        var db = redis.GetDatabase();
+                        await db.ListRightPushAsync(_queueKey, userId);
+                        
+                        consumer.Commit(result);
 
-                        if (_waitingPlayers.Count >= _playersPerMatch)
+                        
+                        var queueSize = await db.ListLengthAsync(_queueKey);
+                        logger.LogInformation("Queue size: {Size}/{Required}", queueSize, _playersPerMatch);
+
+                        if (queueSize >= _playersPerMatch)
                         {
-                            await CreateMatch(stoppingToken);
+                            await TryCreateMatch(db, stoppingToken);
                         }
                     }
                 }
                 catch (ConsumeException ex) when (ex.Error.Code == ErrorCode.UnknownTopicOrPart)
                 {
-                    _logger.LogWarning($"Topic {_requestTopic} not yet available, retrying...");
+                    logger.LogWarning($"Topic {_requestTopic} not yet available, retrying...");
                     await Task.Delay(2000, stoppingToken);
                 }
                 catch (ConsumeException ex)
                 {
-                    _logger.LogError(ex, "Error consuming message from Kafka");
+                    logger.LogError(ex, "Error consuming message from Kafka");
                     await Task.Delay(1000, stoppingToken);
                 }
             }
         }
         finally
         {
-            _consumer.Close();
-            _producer.Dispose();
+            consumer.Close();
+            producer.Dispose();
         }
     }
-
-    private async Task CreateMatch(CancellationToken stoppingToken)
+    
+    private async Task TryCreateMatch(IDatabase db, CancellationToken stoppingToken)
     {
-        var playersForMatch = _waitingPlayers.Take(_playersPerMatch).ToArray();
-        _waitingPlayers.RemoveRange(0, _playersPerMatch);
+        var transaction = db.CreateTransaction();
+        
+        var playersTask = transaction.ListRangeAsync(_queueKey, 0, _playersPerMatch - 1);
+        _ = transaction.ListTrimAsync(_queueKey, _playersPerMatch, -1);
+        
+        if (!await transaction.ExecuteAsync())
+        {
+            logger.LogWarning("Failed to acquire players from queue (race condition)");
+            return;
+        }
 
+        var players = await playersTask;
+        
+        if (players.Length < _playersPerMatch)
+        {
+            logger.LogWarning("Not enough players in queue after transaction");
+            return;
+        }
+
+        await CreateMatch(players.Select(p => p.ToString()).ToArray()!, stoppingToken);
+    }
+
+    private async Task CreateMatch(string[] playersForMatch, CancellationToken stoppingToken)
+    {
         var matchId = Guid.NewGuid().ToString();
-
         var matchComplete = new MatchCompleteMessage(matchId, playersForMatch);
-
         var messageJson = JsonSerializer.Serialize(matchComplete);
 
         try
@@ -94,15 +111,20 @@ public class MatchMakingWorker : BackgroundService
                 Value = messageJson
             };
 
-            await _producer.ProduceAsync(_completeTopic, message, stoppingToken);
+            await producer.ProduceAsync(_completeTopic, message, stoppingToken);
 
-            _logger.LogInformation("Match {MatchId} created with players: {Players}",
+            logger.LogInformation("Match {MatchId} created with players: {Players}",
                 matchId, string.Join(", ", playersForMatch));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send match complete message for match {MatchId}", matchId);
-            _waitingPlayers.InsertRange(0, playersForMatch);
+            logger.LogError(ex, "Failed to send match complete message for match {MatchId}", matchId);
+
+            var db = redis.GetDatabase();
+            foreach (var player in playersForMatch.Reverse())
+            {
+                await db.ListLeftPushAsync(_queueKey, player);
+            }
         }
     }
 }
